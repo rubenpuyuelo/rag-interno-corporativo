@@ -1,0 +1,52 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ollama list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      - RELEVANCE_THRESHOLD=0.24
+      - TOP_K=4
+      - RELATIVE_DELTA=0.02
+      - OLLAMA_MODEL=phi3:mini
+      - OLLAMA_URL=http://ollama:11434
+    volumes:
+      - chroma_data:/app/chroma_db
+      - ./data/pdfs:/app/data/pdfs:ro
+    depends_on:
+      ollama:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, json; data=json.load(urllib.request.urlopen('http://localhost:8000/ready')); import sys; sys.exit(0 if data.get('ready') is True else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8502:8501"
+
+volumes:
+  chroma_data:
+  ollama_data:

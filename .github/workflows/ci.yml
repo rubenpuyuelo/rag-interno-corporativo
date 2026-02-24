@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  docker-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Start services (ollama + api)
+        run: |
+          docker compose up -d ollama
+          docker compose up -d api
+          # Pull model in ollama container (needed for /ready)
+          docker compose exec -T ollama ollama pull phi3:mini
+
+      - name: Build index
+        run: docker compose run --rm api python src/build_index.py
+
+      - name: Smoke tests
+        run: ./scripts/smoke.sh
+
+      - name: Logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --tail=200 api || true
+          docker compose logs --tail=200 ollama || true
+
+      - name: Shutdown
+        if: always()
+        run: docker compose down
