@@ -19,16 +19,22 @@ jobs:
       - name: Build images
         run: docker compose build
 
-      - name: Start services (ollama + api)
+      - name: Start ollama
         run: |
           docker compose up -d ollama
-          docker compose up -d api
-          # Pull model in ollama container (needed for /ready)
           docker compose exec -T ollama ollama pull phi3:mini
 
       - name: Build index
         run: docker compose run --rm api python src/build_index.py
 
+      - name: Start api
+        run: docker compose up -d api
+
+        
+      - name: Debug /ready
+        run: |
+          curl -s http://127.0.0.1:8000/health || true
+          curl -s http://127.0.0.1:8000/ready || true
       - name: Smoke tests
         run: ./scripts/smoke.sh
 
