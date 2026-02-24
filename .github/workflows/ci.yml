@@ -16,12 +16,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build images
-        run: docker compose build
-
-      - name: Start api (LLM disabled)
-        run: |
-          docker compose up -d api
+      - name: Build images (with cache)
+        uses: docker/bake-action@v5
+        with:
+          files: docker-compose.yml
+          set: |
+            *.cache-from=type=gha
+            *.cache-to=type=gha,mode=max
 
       - name: Build index
         run: USE_LLM=false docker compose run --rm --no-deps api python src/build_index.py
