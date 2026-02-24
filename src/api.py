@@ -76,21 +76,13 @@ def build_context(good):
         cites.append(Citation(id=idx, source=src, page=page_str, score=float(score)))
     return "\n\n".join(blocks), cites
 
-def extractive_answer_from_doc(doc) -> str:
-    """
-    Respuesta extractiva simple: devuelve el texto del chunk top.
-    (Sin LLM, sin inventar.)
-    """
-    _, _, text = pretty(doc)
-    return text
-
 def ollama_chat(model: str, prompt: str) -> str:
     """
     Llama a Ollama por HTTP (ideal para Docker/Compose).
     """
     url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434") + "/api/generate"
     payload = {"model": model, "prompt": prompt, "stream": False}
-    r = requests.post(url, json=payload, timeout=240)
+    r = requests.post(url, json=payload, timeout=120)
     r.raise_for_status()
     return r.json().get("response", "").strip()
 
@@ -99,7 +91,6 @@ ABS_THRESH = float(os.getenv("RELEVANCE_THRESHOLD", "0.24"))
 TOP_K = int(os.getenv("TOP_K", "4"))
 REL_DELTA = float(os.getenv("RELATIVE_DELTA", "0.02"))
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi3:mini")
-USE_LLM = os.getenv("USE_LLM", "true").lower() in ("1", "true", "yes", "y")
 
 if not CHROMA_DIR.exists():
     raise SystemExit("No existe chroma_db. Ejecuta primero: python src/build_index.py")
@@ -117,7 +108,6 @@ app = FastAPI(title="RAG Interno Corporativo", version="0.1.0")
 @app.get("/health")
 def health():
     return {"status": "ok"}
-    
 @app.post("/preguntar", response_model=AskResponse)
 def preguntar(payload: AskRequest):
     q = payload.question.strip()
@@ -151,15 +141,9 @@ CONTEXTO:
 
 Respuesta:
 """
-    # Modo CI / rápido: sin LLM
-    if not USE_LLM:
-        best_doc, best_score = good[0]
-        answer = extractive_answer_from_doc(best_doc).strip()
-        return AskResponse(answer=answer, citations=cites)
-
-    # Modo normal: con LLM
     answer = ollama_chat(OLLAMA_MODEL, prompt).strip()
 
+    # Si el modelo dice NO ENCONTRADO, no devolvemos citas
     if answer.startswith("NO ENCONTRADO"):
         return AskResponse(answer="NO ENCONTRADO", citations=[])
 
@@ -174,16 +158,10 @@ def ready():
     except Exception as e:
         return {"ready": False, "reason": f"chroma_error: {e}"}
 
-    # 2) Ollama listo (solo si usamos LLM)
-    if USE_LLM:
-        try:
-            import requests
-            base = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-            r = requests.get(f"{base}/api/tags", timeout=5)
-            r.raise_for_status()
-            tags = r.json()
-            model_names = [m.get("name") for m in tags.get("models", [])]
-            if OLLAMA_MODEL not in model_names:
-                return {"ready": False, "reason": f"model_not_pulled: {OLLAMA_MODEL}"}
-        except Exception as e:
-            return {"ready": False, "reason": f"ollama_error: {e}"}
+    # 2) comprobar que Ollama responde
+    try:
+        _ = ollama_chat(OLLAMA_MODEL, "Responde exactamente: OK")
+    except Exception as e:
+        return {"ready": False, "reason": f"ollama_error: {e}"}
+
+    return {"ready": True}
