@@ -16,7 +16,7 @@ services:
       context: .
       dockerfile: Dockerfile.api
     environment:
-      - USE_LLM=${USE_LLM:-true}
+      - USE_LLM=true
       - RELEVANCE_THRESHOLD=0.24
       - TOP_K=4
       - RELATIVE_DELTA=0.02
