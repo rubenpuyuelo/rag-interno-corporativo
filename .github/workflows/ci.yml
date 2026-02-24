@@ -19,10 +19,9 @@ jobs:
       - name: Build images
         run: docker compose build
 
-      - name: Start ollama
+      - name: Start api (LLM disabled)
         run: |
-          docker compose up -d ollama
-          docker compose exec -T ollama ollama pull phi3:mini
+          docker compose up -d api
 
       - name: Build index
         run: docker compose run --rm api python src/build_index.py
@@ -30,7 +29,7 @@ jobs:
       - name: Start api
         run: docker compose up -d api
 
-        
+
       - name: Debug /ready
         run: |
           curl -s http://127.0.0.1:8000/health || true
@@ -43,7 +42,6 @@ jobs:
         run: |
           docker compose ps
           docker compose logs --tail=200 api || true
-          docker compose logs --tail=200 ollama || true
 
       - name: Shutdown
         if: always()
