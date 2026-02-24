@@ -24,11 +24,12 @@ jobs:
           docker compose up -d api
 
       - name: Build index
-        run: USE_LLM=false docker compose run --rm --no-deps api python src/build_index.py
+        run: USE_LLM=false docker compose run --rm api python src/build_index.py
 
       - name: Start api (LLM disabled)
         run: |
-          USE_LLM=false docker compose up -d --no-deps api
+          USE_LLM=false docker compose up -d api
+
 
       - name: Debug /ready
         run: |
