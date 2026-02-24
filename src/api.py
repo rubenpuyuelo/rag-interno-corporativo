@@ -1,6 +1,7 @@
 import os
 import subprocess
 import requests
+import subprocess
 from pathlib import Path
 from typing import List, Optional
 
@@ -76,6 +77,15 @@ def build_context(good):
         cites.append(Citation(id=idx, source=src, page=page_str, score=float(score)))
     return "\n\n".join(blocks), cites
 
+
+def extractive_answer_from_doc(doc) -> str:
+    """
+    Respuesta gratuita y robusta: devuelve el texto del chunk top.
+    (No inventa nada.)
+    """
+    _, _, text = pretty(doc)
+    return text.strip()
+
 def ollama_chat(model: str, prompt: str) -> str:
     """
     Llama a Ollama por HTTP (ideal para Docker/Compose).
@@ -87,14 +97,17 @@ def ollama_chat(model: str, prompt: str) -> str:
     return r.json().get("response", "").strip()
 
 # ---------- Inicialización (se hace 1 vez al arrancar) ----------
+USE_LLM = os.getenv("USE_LLM", "true").lower() in ("1", "true", "yes", "y")
 ABS_THRESH = float(os.getenv("RELEVANCE_THRESHOLD", "0.24"))
 TOP_K = int(os.getenv("TOP_K", "4"))
 REL_DELTA = float(os.getenv("RELATIVE_DELTA", "0.02"))
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi3:mini")
 
-if not CHROMA_DIR.exists():
-    raise SystemExit("No existe chroma_db. Ejecuta primero: python src/build_index.py")
 
+if not CHROMA_DIR.exists():
+    # En cloud (Render), generamos el índice al arrancar
+    subprocess.check_call(["python", "src/build_index.py"])
+    
 _embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 _db = Chroma(
     persist_directory=str(CHROMA_DIR),
@@ -131,6 +144,13 @@ def preguntar(payload: AskRequest):
 
     context, cites = build_context(good)
 
+        # --- Modo GRATIS / Cloud: sin LLM ---
+    if not USE_LLM:
+        best_doc, best_score = good[0]
+        answer = extractive_answer_from_doc(best_doc)
+        return AskResponse(answer=answer, citations=cites)
+
+    # --- Modo Local: con Ollama ---
     prompt = f"""{SYSTEM_PROMPT}
 
 PREGUNTA:
@@ -151,17 +171,17 @@ Respuesta:
 
 @app.get("/ready")
 def ready():
-    # 1) comprobar que hay colección/documentos
+    # 1) Chroma listo
     try:
-        # Chroma puede devolver vacío si no indexaste
-        test = _db.similarity_search("test", k=1)
+        _ = _db.similarity_search("test", k=1)
     except Exception as e:
         return {"ready": False, "reason": f"chroma_error: {e}"}
 
-    # 2) comprobar que Ollama responde
-    try:
-        _ = ollama_chat(OLLAMA_MODEL, "Responde exactamente: OK")
-    except Exception as e:
-        return {"ready": False, "reason": f"ollama_error: {e}"}
+    # 2) LLM listo (solo si usamos LLM)
+    if USE_LLM:
+        try:
+            _ = ollama_chat(OLLAMA_MODEL, "Responde exactamente: OK")
+        except Exception as e:
+            return {"ready": False, "reason": f"ollama_error: {e}"}
 
     return {"ready": True}
